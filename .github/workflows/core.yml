@@ -17,7 +17,13 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           python-version: "3.12"
-      - run: uv pip install --system -e ".[dev]"
-      - run: ruff check .
-      - run: mypy schedulebot_core
-      - run: TZ=Europe/London python -m pytest
+      # A venv, not --system: the runner's Python is externally managed and
+      # refuses system-wide installs.
+      - run: uv venv
+      - run: uv pip install -e ".[dev]"
+      - run: uv run ruff check .
+      - run: uv run mypy schedulebot_core
+      # Pinned zone so date-sensitive tests do not depend on the runner's TZ.
+      - run: uv run pytest
+        env:
+          TZ: Europe/London
