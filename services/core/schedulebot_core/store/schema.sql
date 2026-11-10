@@ -93,6 +93,18 @@ CREATE TABLE IF NOT EXISTS plans (
 
 -- Read-only calendar feeds. The token is the credential, so it is stored hashed
 -- and can be revoked without touching the account.
+-- What we last told a calendar client, per event. Without this the feed cannot
+-- bump SEQUENCE on a move or cancel a block that disappeared.
+CREATE TABLE IF NOT EXISTS ics_state (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    uid        TEXT NOT NULL,
+    sequence   INTEGER NOT NULL DEFAULT 0,
+    starts_at  TEXT NOT NULL DEFAULT '',
+    cancelled  INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, uid)
+);
+
 CREATE TABLE IF NOT EXISTS ics_tokens (
     token_hash TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

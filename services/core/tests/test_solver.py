@@ -261,3 +261,37 @@ def test_an_urgent_dependent_still_waits_for_its_dependency() -> None:
     draft_end = max(b.end_slot for b in plan.blocks if b.task_id == "draft")
     review_start = min(b.start_slot for b in plan.blocks if b.task_id == "review")
     assert review_start >= draft_end
+
+
+def test_a_task_bigger_than_its_window_is_split_across_days() -> None:
+    """Two hours of work in a one-hour daily window is two sessions, not nothing.
+
+    This is the shape of a real instruction: "don't schedule demanding work after
+    8pm" narrows the window, and a task sized only from `max_chunk` then vanishes
+    while the plan still reports itself complete.
+    """
+    plan = run([task(minutes=120, min_chunk=60, max_chunk=120,
+                     windows=(Window(20 * 60, 21 * 60),))])
+    assert len(plan.blocks) == 2, plan.blocks
+    assert all(block.slots == 4 for block in plan.blocks)
+    assert len({block.start_slot // SLOTS_PER_DAY for block in plan.blocks}) == 2
+    assert plan.shortfalls == []
+
+
+def test_a_fragmented_window_takes_the_largest_session_that_fits() -> None:
+    """The window is 09:00-11:00 and a meeting eats the first 90 minutes, so the
+    only room today is a 30-minute gap. Take it rather than skipping the day."""
+    busy = [Occupied(at(0, 9), at(0, 10, 30), "Meeting")]
+    plan = run([task(minutes=60, min_chunk=30, max_chunk=60,
+                     windows=workday(9, 11))], busy=busy)
+    ordered = sorted(plan.blocks, key=lambda block: block.start_slot)
+    assert ordered[0].start_slot == at(0, 10, 30), "should use the 30-minute gap"
+    assert ordered[0].slots == 2
+    assert ordered[1].start_slot == at(1, 9), "the rest goes tomorrow"
+
+
+def test_an_uninterruptible_task_is_still_never_diced() -> None:
+    plan = run([task(minutes=180, min_chunk=60, max_chunk=60, splittable=False,
+                     windows=(Window(9 * 60, 10 * 60),))])
+    assert plan.blocks == []
+    assert plan.shortfalls

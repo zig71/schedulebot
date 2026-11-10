@@ -62,29 +62,6 @@ class Occupancy:
         return tuple(self._spans)
 
 
-def chunk_sizes(
-    required: int, min_chunk: int, max_chunk: int, splittable: bool, limit: int
-) -> list[int]:
-    """Split demand into sessions, largest first.
-
-    `splittable=False` returns the demand whole: `max_chunk` is then not a
-    ceiling, and a demand that does not fit should be reported as unfitted
-    rather than diced into sessions the user said they did not want.
-    """
-    if not splittable:
-        return [required]
-    sizes: list[int] = []
-    remaining = required
-    while remaining >= min_chunk and len(sizes) < limit:
-        take = min(max_chunk, remaining)
-        # Never leave a stub too small to stand alone.
-        if 0 < remaining - take < min_chunk and remaining >= 2 * min_chunk:
-            take = remaining - min_chunk
-        sizes.append(take)
-        remaining -= take
-    return sizes
-
-
 def ordered_spans(spans: Sequence[Span], energy: Energy | None) -> list[Span]:
     """Usable spans in preference order.
 
@@ -119,56 +96,69 @@ class Placer:
         counts = self._counts(req)
         counts[day] = counts.get(day, 0) + 1
 
+    # -- pass one --------------------------------------------------------
+
     def reserve(
         self, req: Requirement, previous: dict[tuple[str, int, int], Block]
     ) -> list[Block]:
-        """Hold whatever the previous plan already had, where it still fits."""
-        sizes = chunk_sizes(
-            req.required_slots,
-            req.min_chunk,
-            req.max_chunk,
-            req.task.splittable,
-            req.max_chunks,
+        """Hold whatever the previous plan already had, where it still fits.
+
+        Iterates the previous blocks themselves rather than re-deriving how many
+        sessions there should be: what was on the calendar is the fact worth
+        preserving, and re-deriving it from today's estimate is how a block
+        silently changes size overnight.
+        """
+        priors = sorted(
+            (
+                block
+                for (task_id, occurrence, _chunk), block in previous.items()
+                if task_id == req.task.id and occurrence == req.occurrence
+            ),
+            key=lambda block: (block.start_slot, block.chunk),
         )
         kept: list[Block] = []
-        for chunk, size in enumerate(sizes):
-            prior = previous.get((req.task.id, req.occurrence, chunk))
-            if prior is None:
-                continue
-            start = prior.start_slot
-            running = start <= self.now_slot < prior.end_slot
-            if running:
-                # A session already underway is a fact, not a plan: never let a
-                # changed estimate grow it past what it already occupies.
-                size = min(size, prior.end_slot - prior.start_slot)
-            span = next((s for s in req.spans if s.lo <= start and start + size <= s.hi), None)
+        for prior in priors:
+            size = prior.slots
+            running = prior.start_slot <= self.now_slot < prior.end_slot
+            end = prior.end_slot
+            span = next(
+                (s for s in req.spans if s.lo <= prior.start_slot and end <= s.hi),
+                None,
+            )
             if span is None and running:
                 # Today's span can disappear entirely when too little of it is
-                # left to hold a chunk. The block is still happening.
-                span = next((s for s in req.spans if s.day == day_of(start)), None) or Span(
-                    lo=start, hi=start + size, day=day_of(start), window=None
+                # left to hold a session. The block is still happening.
+                span = next(
+                    (s for s in req.spans if s.day == day_of(prior.start_slot)), None
+                ) or Span(
+                    lo=prior.start_slot,
+                    hi=end,
+                    day=day_of(prior.start_slot),
+                    window=None,
                 )
             if span is None:
                 continue
             if self._at_cap(req, span.day):
                 continue
-            if not self.occupancy.is_free(start, size):
+            if not self.occupancy.is_free(prior.start_slot, size):
                 continue
-            self.occupancy.take(start, size)
+            self.occupancy.take(prior.start_slot, size)
             self._count(req, span.day)
             kept.append(
                 Block(
                     task_id=req.task.id,
                     occurrence=req.occurrence,
-                    chunk=chunk,
-                    start_slot=start,
-                    end_slot=start + size,
+                    chunk=prior.chunk,
+                    start_slot=prior.start_slot,
+                    end_slot=prior.start_slot + size,
                     priority=req.task.priority,
                     moved_from=prior.start_slot,
                     reason=Reason(window=(span.lo, span.hi), kept_previous=True),
                 )
             )
         return kept
+
+    # -- pass two --------------------------------------------------------
 
     def fill(
         self,
@@ -177,28 +167,32 @@ class Placer:
         after_slot: int = 0,
         after_task: str | None = None,
     ) -> tuple[list[Block], int]:
-        """Place the demand pass one did not hold. Returns blocks and placed slots."""
-        sizes = chunk_sizes(
-            req.required_slots,
-            req.min_chunk,
-            req.max_chunk,
-            req.task.splittable,
-            req.max_chunks,
-        )
-        held = {block.chunk for block in kept}
-        placed = sum(block.slots for block in kept)
-        blocks: list[Block] = []
+        """Place the demand pass one did not hold. Returns blocks and placed slots.
 
-        for chunk, size in enumerate(sizes):
-            if chunk in held:
-                continue
+        Sessions are sized to what actually fits, not to `max_chunk` regardless of
+        the window. A two-hour task inside a one-hour daily window is two
+        one-hour sessions on two days; sizing every session from the ceiling
+        alone produced nothing at all for such a task, and the calendar feed then
+        reported every event as cancelled.
+        """
+        placed = sum(block.slots for block in kept)
+        remaining = req.required_slots - placed
+        blocks: list[Block] = []
+        next_chunk = max((block.chunk for block in kept), default=-1) + 1
+        if remaining <= 0:
+            return blocks, placed
+
+        if not req.task.splittable:
+            # One session or none. `max_chunk` is not a ceiling for this task, and
+            # dicing work the user said must not be interrupted is worse than
+            # reporting plainly that it did not fit.
             rejected: list[tuple[int, int, str]] = []
             for span in ordered_spans(req.spans, req.task.energy):
                 if self._at_cap(req, span.day):
                     rejected.append((span.lo, span.hi, "daily cap reached"))
                     continue
                 lo = max(span.lo, after_slot)
-                if lo + size > span.hi:
+                if lo + remaining > span.hi:
                     rejected.append(
                         (
                             span.lo,
@@ -207,20 +201,21 @@ class Placer:
                         )
                     )
                     continue
-                start = self.occupancy.first_fit(lo, span.hi, size)
+                start = self.occupancy.first_fit(lo, span.hi, remaining)
                 if start is None:
-                    rejected.append((span.lo, span.hi, f"no free {size * 15}-minute gap"))
+                    rejected.append(
+                        (span.lo, span.hi, f"no free {remaining * 15}-minute gap")
+                    )
                     continue
-                self.occupancy.take(start, size)
+                self.occupancy.take(start, remaining)
                 self._count(req, span.day)
-                placed += size
                 blocks.append(
                     Block(
                         task_id=req.task.id,
                         occurrence=req.occurrence,
-                        chunk=chunk,
+                        chunk=next_chunk,
                         start_slot=start,
-                        end_slot=start + size,
+                        end_slot=start + remaining,
                         priority=req.task.priority,
                         reason=Reason(
                             window=(span.lo, span.hi),
@@ -229,9 +224,61 @@ class Placer:
                         ),
                     )
                 )
+                placed += remaining
                 break
-        return blocks, placed
+            return blocks, placed
 
+        for span in ordered_spans(req.spans, req.task.energy):
+            if remaining < req.min_chunk or len(blocks) >= req.max_chunks:
+                break
+            if self._at_cap(req, span.day):
+                continue
+            lo = max(span.lo, after_slot)
+            room = span.hi - lo
+            if room < req.min_chunk:
+                continue
+
+            size = min(req.max_chunk, room, remaining)
+            # Never leave a stub too small to stand alone as its own session.
+            if (
+                0 < remaining - size < req.min_chunk
+                and remaining - req.min_chunk >= req.min_chunk
+            ):
+                size = remaining - req.min_chunk
+
+            rejected_here: list[tuple[int, int, str]] = []
+            start = self.occupancy.first_fit(lo, span.hi, size)
+            while start is None and size > req.min_chunk:
+                # The window has room but it is fragmented: shrink to the largest
+                # session that fits rather than abandoning the window entirely.
+                size -= 1
+                start = self.occupancy.first_fit(lo, span.hi, size)
+            if start is None:
+                rejected_here.append((span.lo, span.hi, f"no free {size * 15}-minute gap"))
+                continue
+
+            self.occupancy.take(start, size)
+            self._count(req, span.day)
+            remaining -= size
+            placed += size
+            blocks.append(
+                Block(
+                    task_id=req.task.id,
+                    occurrence=req.occurrence,
+                    chunk=next_chunk,
+                    start_slot=start,
+                    end_slot=start + size,
+                    priority=req.task.priority,
+                    reason=Reason(
+                        window=(span.lo, span.hi),
+                        after_dependency=after_task if after_slot else None,
+                        rejected=tuple(rejected_here),
+                    ),
+                )
+            )
+            next_chunk += 1
+
+        return blocks, placed
 
 
 def slots_for_minutes(minutes: int) -> int:

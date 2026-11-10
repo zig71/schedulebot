@@ -14,7 +14,8 @@ acknowledge → record what actually happened → re-plan the remainder.**
 | Categories + context + LLM contract | **Built and tested** — pure parsing, no network |
 | LLM transport (Groq) | **Built, exercised against the live model** |
 | API + auth + users (SQLite, one writer) | **Built and tested** — 90 tests |
-| Calendar sync (ICS/CalDAV/Google) | Not started |
+| `.ics` read-only feed | **Built and tested** — token URL, stable UIDs, SEQUENCE, cancellations |
+| CalDAV / Google two-way sync | Not started |
 | Notifier + desktop companion | Prototype only (`/prototype` on the old rig) |
 | Cold Turkey adapter | Designed, not built |
 | Tauri client | Not started |
@@ -49,6 +50,16 @@ curl -b jar localhost:8000/api/now
 
 `/api/now` is the product in one call: the block you should be in, when it ends,
 why it is there, and which distraction blocks belong to it.
+
+To subscribe from a phone, mint a feed URL and add it as a calendar:
+
+```bash
+curl -b jar -X POST localhost:8000/api/ics/token     # {"url": "/ics/<token>.ics"}
+curl -b jar -X DELETE localhost:8000/api/ics/token   # revoke it
+```
+
+The token is a password: anyone with the URL can read the schedule. It is stored
+hashed and can be revoked without touching the account.
 
 ## Layout
 

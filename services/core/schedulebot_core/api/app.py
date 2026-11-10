@@ -20,12 +20,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
+from .. import ics as ics_format
 from .. import views
 from ..categories import Category
 from ..domain import Plan, Task
 from ..llm.contract import CaptureResult
 from ..slots import SLOTS_PER_DAY, floor_slot, midnight, minutes_for
 from ..solver import solve
+from ..store import ics as ics_store
 from ..store import plans as plans_store
 from ..store import tasks as tasks_store
 from ..store import users as users_store
@@ -314,6 +316,52 @@ def create_app(
             raise HTTPException(status_code=404, detail="nothing scheduled")
         current["warnings"] = warnings
         return current
+
+    # -- calendar feed ---------------------------------------------------
+
+    @app.post("/api/ics/token")
+    def post_ics_token(user: User = Depends(current_user)) -> dict[str, object]:
+        token = ics_store.create_token(store, user.id)
+        return {
+            "url": f"/ics/{token}.ics",
+            "note": "This URL is a password. Anyone with it can read your schedule.",
+        }
+
+    @app.delete("/api/ics/token", status_code=204)
+    def delete_ics_token(user: User = Depends(current_user)) -> Response:
+        if ics_store.revoke_tokens(store, user.id) == 0:
+            raise HTTPException(status_code=404, detail="no feed token to revoke")
+        return Response(status_code=204)
+
+    @app.get("/ics/{token}.ics")
+    def get_ics(token: str) -> Response:
+        """The feed itself. No cookie: the token in the URL is the credential."""
+        user_id = ics_store.user_id_for_token(store, token)
+        if user_id is None:
+            raise HTTPException(status_code=404, detail="no such feed")
+        user = users_store.load_user(store, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="no such feed")
+
+        plan, _, _ = plans_store.load(store, user.id)
+        categories = categories_for(user)
+        now = now_for(user)
+        now_slot = max(0, floor_slot(now, plan.origin)) if plan else 0
+        text, state = ics_format.compose(
+            plan,
+            user=user.username,
+            tasks=tasks_store.load_tasks(store, user.id),
+            categories=categories,
+            previous=ics_store.load_state(store, user.id),
+            now=now,
+            now_slot=now_slot,
+        )
+        ics_store.save_state(store, user.id, state, now=now)
+        return Response(
+            content=text,
+            media_type="text/calendar; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

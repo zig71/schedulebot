@@ -138,6 +138,21 @@ def user_for_token(store: Store, token: str) -> User | None:
     )
 
 
+def load_user(store: Store, user_id: str) -> User | None:
+    row = store.one(
+        "SELECT id, username, timezone, is_admin FROM users WHERE id = ? AND disabled = 0",
+        (user_id,),
+    )
+    if row is None:
+        return None
+    return User(
+        id=str(row["id"]),
+        username=str(row["username"]),
+        timezone=str(row["timezone"]),
+        is_admin=bool(row["is_admin"]),
+    )
+
+
 def revoke_session(store: Store, token: str) -> None:
     store.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash_token(token),))
 

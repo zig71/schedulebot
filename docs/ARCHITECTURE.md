@@ -135,6 +135,41 @@ repetition ("gym twice a week") comes back as a `HABIT` task with a period, whic
 the solver places. That distinction is the difference between a lecture that must
 never move and a workout that may.
 
+## The calendar feed
+
+```
+GET /ics/{token}.ics     the feed (token is the credential, no cookie)
+POST /api/ics/token      mint, retiring any previous token
+DELETE /api/ics/token    revoke
+```
+
+Three rules, each of which exists because breaking it damages the user's real
+calendar:
+
+1. **One UID per block, forever** — derived by a single shared function from
+   (task, occurrence, chunk). Re-solving updates the event in place instead of
+   creating a second one.
+2. **SEQUENCE tracks the absolute start.** A moved block increments it. Comparing
+   day-relative slots instead is how midnight becomes a silent relocation.
+3. **A removed block is cancelled, and the cancellation is re-sent for a grace
+   window with the same SEQUENCE.** Sent exactly once, a client that was offline
+   during that one poll keeps the ghost event forever; bumping on every re-send
+   makes every poll look like a new change.
+
+Text is escaped and folded at 75 octets, instants are UTC, and the output is
+sorted so the same plan always produces the same bytes — a feed that reshuffles
+looks changed to the client even when nothing moved.
+
+## Session sizing
+
+Sessions are sized to what actually fits, not to `max_chunk` regardless of the
+window, and the window is allowed to shrink a session down to `min_chunk` to use a
+fragmented gap. Before this, a two-hour task inside a one-hour daily window —
+exactly what "don't schedule demanding work after 8pm" produces — placed nothing
+at all, and the feed then reported every event as cancelled. Pass one also holds
+prior blocks by iterating them directly rather than re-deriving how many there
+should be from today's estimate.
+
 ## Deliberately absent
 
 - **No CP-SAT.** The scheduling problem here is small and the constraint that
