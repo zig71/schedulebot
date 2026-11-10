@@ -1,0 +1,23 @@
+name: core
+
+on:
+  push:
+    paths: ["services/core/**", ".github/workflows/core.yml"]
+  pull_request:
+    paths: ["services/core/**", ".github/workflows/core.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+      - run: uv pip install --system -e ".[dev]"
+      - run: ruff check .
+      - run: mypy schedulebot_core
+      - run: TZ=Europe/London python -m pytest
