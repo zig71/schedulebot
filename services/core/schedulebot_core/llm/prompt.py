@@ -56,9 +56,16 @@ def build_system_prompt(
         "- due_in_days: whole days from today. Null when no deadline is stated.",
         "- depends_on: titles of other tasks in this same response that must "
         "happen first.",
-        "- recurrence: for repeating work. `period_days` for \"twice a week\" "
-        "style quotas; `weekdays` plus `start_min`/`end_min` only when the note "
-        "gives a fixed time (a Tuesday 09:00 lecture).",
+        "- recurrence: for repeating work. `period_days` for a repeating quota; "
+        "`weekdays` plus `start_min`/`end_min` only when the note gives a fixed "
+        "time (a Tuesday 09:00 lecture).",
+        "",
+        "FREQUENCY",
+        "A quota such as \"gym twice this week\" is ONE task, not two: set "
+        "`minutes` to the total for the period, `max_chunk_minutes` to the length "
+        "of a single session, and `max_per_day` to 1. The scheduler then spreads "
+        "it over separate days. Do not create duplicate tasks to express "
+        "frequency, and do not put the whole quota in one sitting.",
         "- context: people involved, place, kit required, tags.",
         "",
         "Return one object matching the schema. No prose outside it.",

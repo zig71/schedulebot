@@ -49,6 +49,8 @@ not take scheduling down with them.
 | Reasoning | Two records: model interpretation, solver placement | Merging them lets a guess masquerade as a justification |
 | `.ics` | Read-only feed behind a **revocable per-user token** | Calendar clients cannot log in; a feed URL is a bearer secret |
 | Cold Turkey | Adapter with a **channel probe**, never locks | See below |
+| Blocking scope | **Per category**, a tuple of block names | "No social" and "No video" belong to different categories, and one category can need several |
+| Transport failures | Surfaced with status and body, never retried silently | A 401 and a 400 "unsupported schema" need different fixes |
 | Desktop | Tauri, one codebase; Windows is the full-featured target | CT is Windows-only, so "shared codebase" is true for the app, not the features |
 
 ## Cold Turkey
@@ -76,6 +78,38 @@ Hard rules, regardless of channel:
 - one active profile at a time, persisted before activation so a crash cannot
   leave an unknown state;
 - a failure to block is reported and the session continues unblocked.
+
+## The service
+
+```
+POST /api/login          session cookie (argon2id, HttpOnly, SameSite=Lax)
+POST /api/logout         revoke + clear
+GET  /api/me             who am I, my timezone, my categories
+PUT  /api/categories/{id} rename, recolour, re-window, map Cold Turkey blocks
+GET  /api/tasks          my tasks
+PUT  /api/tasks/{id}     create or replace one task
+POST /api/tasks/{id}/progress   record what is actually left
+POST /api/capture        note -> tasks -> plan
+POST /api/plan/solve     re-solve now
+GET  /api/plan           the stored plan
+GET  /api/now            what should I be doing, and why
+GET  /healthz            liveness, unauthenticated
+```
+
+**No registration route exists.** The operator CLI is the only way an account
+comes into being; a test asserts the obvious paths 404.
+
+**Every route is scoped to the session's user.** The user id comes from the
+cookie, never the body, so `PUT /api/tasks/{id}` cannot be pointed at somebody
+else's task — also tested.
+
+**Login is throttled** per (username, address) so one attacker cannot lock a real
+user out by hammering their account from elsewhere.
+
+**A plan is a snapshot, not a source of truth.** Tasks and routines are the
+truth; `/api/plan` returns what the last solve produced, and `/api/now` reads that
+snapshot rather than re-solving on every poll — otherwise the answer changes while
+the user is reading it.
 
 ## The capture boundary
 
@@ -110,3 +144,5 @@ never move and a workout that may.
 - **No microservice per table.** Three processes with clear jobs beat eight with
   none.
 - **No model in the placement path.** Ever.
+- **No retry that hides a failure.** A model response outside the contract is an
+  error with the response attached, not something to repair by guessing.

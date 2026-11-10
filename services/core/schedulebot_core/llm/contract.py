@@ -44,10 +44,32 @@ class CaptureResult:
         return [task.id for task in self.tasks] + [routine.id for routine in self.routines]
 
 
+#: Strict structured output (OpenAI and Groq alike) requires *every* property to
+#: appear in `required`; optionality is expressed as a nullable type instead. Miss
+#: this and the endpoint rejects the whole schema with a 400 before the model is
+#: even called — which is how this was found.
+TASK_REQUIRED = [
+    "title",
+    "category",
+    "minutes",
+    "min_chunk_minutes",
+    "max_chunk_minutes",
+    "splittable",
+    "priority",
+    "energy",
+    "windows",
+    "due_in_days",
+    "max_per_day",
+    "depends_on",
+    "recurrence",
+    "context",
+    "reasoning",
+]
+
 TASK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["title", "category", "minutes", "reasoning"],
+    "required": TASK_REQUIRED,
     "properties": {
         "title": {"type": "string", "minLength": 1, "maxLength": 200},
         "category": {"type": "string"},
@@ -70,6 +92,7 @@ TASK_SCHEMA: dict[str, Any] = {
             },
         },
         "due_in_days": {"type": ["integer", "null"], "minimum": 0, "maximum": 365},
+        "max_per_day": {"type": ["integer", "null"], "minimum": 1, "maximum": 8},
         "depends_on": {"type": "array", "items": {"type": "string"}},
         "recurrence": {
             "type": ["object", "null"],
@@ -244,6 +267,7 @@ def _make_task(ident: str, title: str, raw: Mapping[str, Any], now: datetime) ->
         windows=_windows(raw.get("windows")),
         due=_due(raw.get("due_in_days"), now),
         period_days=7 if days else (_int_or(period_days, 0, name="period_days") or None),
+        max_per_day=_int_or(raw.get("max_per_day"), 0, name="max_per_day") or None,
         category=category,
         context=_context(raw.get("context")),
     )
@@ -296,6 +320,15 @@ def parse_capture(
         except (TypeError, ValueError) as exc:
             warnings.append(f"{title}: {exc}")
             continue
+        # "Uninterruptible" and "does not fit in one sitting" cannot both be true.
+        # The quota wins: a model that sets both has described work that is spread
+        # out, so split it and say so rather than placing nothing.
+        if isinstance(built, Task) and not built.splittable and built.minutes > built.max_chunk:
+            warnings.append(
+                f"{title}: described as uninterruptible but needs {built.minutes} minutes "
+                f"in chunks of {built.max_chunk}; it will be split"
+            )
+            built = replace(built, splittable=True)
         if isinstance(built, Routine):
             routines.append(built)
         else:

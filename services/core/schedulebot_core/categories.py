@@ -22,10 +22,15 @@ UNCATEGORISED = "uncategorised"
 class Category:
     """A bucket with scheduling defaults.
 
-    `blocking` names a Cold Turkey block *the user created themselves*. The app
-    never invents a block, and never passes a name the user did not configure —
-    which is why this is a plain string checked against a local allowlist, not a
-    path or a command.
+    `blocking` names Cold Turkey blocks *the user created themselves*, and it is a
+    list because a category is not one block: "no social, no video" is a different
+    set of blocks from "no code, no docs". Cold Turkey blocklists are themselves
+    flexible — sites and apps per block — so a category maps onto whichever sets
+    of them the user already maintains.
+
+    The app never invents a block name and never passes one the user did not
+    configure. That is why this is a tuple of plain names checked against a local
+    allowlist, not a path or a command.
     """
 
     id: str
@@ -33,7 +38,7 @@ class Category:
     colour: str
     energy: Energy | None = None
     windows: tuple[Window, ...] = ()
-    blocking: str | None = None
+    blocking: tuple[str, ...] = ()
     description: str = ""
 
     def __post_init__(self) -> None:
@@ -52,7 +57,9 @@ PRESET_CATEGORIES: tuple[Category, ...] = (
         colour="#4C6FFF",
         energy=Energy.HIGH,
         windows=(Window(9 * 60, 12 * 60),),
-        blocking=None,  # the user names their own block; never assumed
+        # Example mapping only: these are the user's own block names, changed in
+        # settings. Nothing here is created or guessed by the app.
+        blocking=("Deep work", "No social"),
         description="Focused, uninterrupted work that needs your best hours.",
     ),
     Category(
@@ -129,10 +136,12 @@ def resolve(task: Task, categories: dict[str, Category]) -> Task:
     return replace(task, windows=windows, energy=energy)
 
 
-def blocking_for(task: Task, categories: dict[str, Category]) -> str | None:
-    """The distraction block that belongs with this task, if the user mapped one."""
+def blocking_for(task: Task, categories: dict[str, Category]) -> tuple[str, ...]:
+    """The distraction blocks that belong with this task, in the order to apply them."""
     category = categories.get(task.category)
-    return category.blocking if category else None
+    if category is None:
+        return ()
+    return category.blocking
 
 
 def categorise(task: Task, categories: dict[str, Category]) -> str:

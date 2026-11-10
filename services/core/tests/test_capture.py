@@ -63,11 +63,23 @@ def test_a_user_category_can_override_a_preset() -> None:
     assert merged["deep-work"].name == "Flow"
 
 
-def test_blocking_is_opt_in_and_named_by_the_user() -> None:
-    mapped = Category(id="deep-work", name="Deep work", colour="#4C6FFF", blocking="Deep work")
-    assert blocking_for(Task(id="a", title="a", minutes=60, category="deep-work"),
-                        catalog((mapped,))) == "Deep work"
-    assert blocking_for(Task(id="b", title="b", minutes=60, category="recovery"), CATS) is None
+def test_blocking_is_per_category_and_can_be_several_blocks() -> None:
+    mapped = Category(
+        id="study", name="Study", colour="#4C6FFF",
+        blocking=("Deep work", "No social", "No video"),
+    )
+    cats = catalog((mapped,))
+    assert blocking_for(Task(id="a", title="a", minutes=60, category="study"), cats) == (
+        "Deep work", "No social", "No video",
+    )
+
+
+def test_a_category_with_no_mapping_blocks_nothing() -> None:
+    assert blocking_for(Task(id="b", title="b", minutes=60, category="recovery"), CATS) == ()
+
+
+def test_an_unknown_category_blocks_nothing_rather_than_guessing() -> None:
+    assert blocking_for(Task(id="c", title="c", minutes=60, category="nope"), CATS) == ()
 
 
 def test_an_invalid_category_is_refused_at_construction() -> None:
@@ -250,3 +262,70 @@ def test_the_prompt_lists_every_category_and_forbids_picking_times() -> None:
         assert category.id in prompt
     assert "Never choose a clock time" in prompt
     assert "Tuesday 10 November 2026" in prompt
+
+
+def test_uninterruptible_is_impossible_when_the_quota_is_bigger_than_a_sitting() -> None:
+    """A model that says 'cannot be split' and '120 minutes in 60-minute chunks'
+    has described work that is spread out. Split it and say so, rather than
+    producing a task that can never be placed."""
+    result = parse_capture(
+        payload(
+            title="Gym session",
+            minutes=120,
+            min_chunk_minutes=60,
+            max_chunk_minutes=60,
+            splittable=False,
+            category="health",
+        ),
+        now=NOW,
+        categories=CATS,
+    )
+    task = result.tasks[0]
+    assert task.splittable is True
+    assert any("will be split" in warning for warning in result.warnings)
+
+
+def test_an_uninterruptible_task_that_fits_is_left_alone() -> None:
+    result = parse_capture(
+        payload(title="Dentist", minutes=45, min_chunk_minutes=45,
+                max_chunk_minutes=45, splittable=False, category="health"),
+        now=NOW,
+        categories=CATS,
+    )
+    assert result.tasks[0].splittable is False
+    assert result.warnings == ()
+
+
+def test_a_weekly_quota_spreads_over_separate_days() -> None:
+    """'Twice this week, an hour each' must not become one two-hour sitting."""
+    result = parse_capture(
+        payload(
+            title="Gym",
+            minutes=120,
+            min_chunk_minutes=60,
+            max_chunk_minutes=60,
+            max_per_day=1,
+            category="health",
+        ),
+        now=NOW,
+        categories=CATS,
+    )
+    assert result.tasks[0].max_per_day == 1
+
+    origin = NOW.replace(hour=0, minute=0)
+    plan = solve(result.tasks, origin=origin, horizon_slots=7 * 96,
+                 now_slot=38, categories=CATS)
+    days = {block.start_slot // 96 for block in plan.blocks}
+    assert len(plan.blocks) == 2
+    assert len(days) == 2, f"both sessions landed on the same day: {days}"
+
+
+def test_the_schema_offers_the_model_every_field_it_needs() -> None:
+    from schedulebot_core.llm.contract import CAPTURE_SCHEMA, TASK_SCHEMA
+
+    properties = TASK_SCHEMA["properties"]
+    # Strict structured output rejects a schema whose properties are not all
+    # required, so this list and the property list must stay in step.
+    assert list(TASK_SCHEMA["required"]) == list(properties)
+    assert "max_per_day" in properties
+    assert CAPTURE_SCHEMA["properties"]["tasks"]["items"] is TASK_SCHEMA

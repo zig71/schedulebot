@@ -10,10 +10,10 @@ acknowledge → record what actually happened → re-plan the remainder.**
 
 | Piece | State |
 |---|---|
-| Scheduling engine (`services/core`) | **Built and tested** — 43 tests, pure, no I/O |
+| Scheduling engine (`services/core`) | **Built and tested** — pure, no I/O |
 | Categories + context + LLM contract | **Built and tested** — pure parsing, no network |
-| LLM transport (Groq client) | Not started |
-| API + auth + users | Not started |
+| LLM transport (Groq) | **Built, exercised against the live model** |
+| API + auth + users (SQLite, one writer) | **Built and tested** — 90 tests |
 | Calendar sync (ICS/CalDAV/Google) | Not started |
 | Notifier + desktop companion | Prototype only (`/prototype` on the old rig) |
 | Cold Turkey adapter | Designed, not built |
@@ -21,6 +21,34 @@ acknowledge → record what actually happened → re-plan the remainder.**
 
 The engine came first because everything else is plumbing around it, and because
 a schedule you cannot trust is worse than no schedule.
+
+## Run it
+
+There is no registration page. Accounts come from the host:
+
+```bash
+cd services/core
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+
+.venv/bin/python -m schedulebot_core.cli --db data/schedulebot.db user-add yatt --timezone Europe/London
+.venv/bin/python -m schedulebot_core.cli --db data/schedulebot.db serve \
+    --port 8000 --llm-key "$SCHEDULEBOT_LLM_API_KEY" --llm-model qwen/qwen3.8-27b
+```
+
+Then, over HTTP:
+
+```bash
+curl -c jar -X POST localhost:8000/api/login -H 'content-type: application/json' \
+     -d '{"username":"yatt","password":"..."}'
+
+curl -b jar -X POST localhost:8000/api/capture -H 'content-type: application/json' \
+     -d '{"note":"gym twice this week, an hour each. investor update before friday, 3h"}'
+
+curl -b jar localhost:8000/api/now
+```
+
+`/api/now` is the product in one call: the block you should be in, when it ends,
+why it is there, and which distraction blocks belong to it.
 
 ## Layout
 
@@ -33,7 +61,11 @@ services/
       categories.py     seven presets + user categories, and their defaults
       solver/           expand → reserve → fill → report
       explain.py        why a block is where it is
-      llm/              sentence → structured requests (schema, prompt, parser)
+      llm/              sentence → structured requests (schema, prompt, parser, Groq)
+      store/            the single writer: schema, users, tasks, plans
+      api/              HTTP surface: auth, tasks, capture, plan, now
+      views.py          one description of a block, for API/notifier/client
+      cli.py            operator CLI: create accounts, serve
     tests/
 docs/
   ARCHITECTURE.md       decisions, boundaries, and what is deliberately absent
