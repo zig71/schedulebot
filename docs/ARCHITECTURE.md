@@ -43,6 +43,10 @@ not take scheduling down with them.
 | Timezone | **Per user**, stored and sent with each request | The server's zone is not the user's zone, and the desktop app travels |
 | Secrets | Per-user LLM keys, encrypted at rest | One operator's key must not become everyone's |
 | LLM | Groq (OpenAI-compatible), `qwen/qwen3.8-27b`, schema-constrained | The model fills a form. It never picks a time and cannot write to a calendar |
+| Categories | Seven presets, overridable per user, id-stable | A new account must be useful on day one; a taxonomy nobody maintains is worse than none |
+| Category influence | Supplies defaults only; explicit task settings win | "Deep work is mornings" is a default, not a rule the user cannot override |
+| Context | Structured fields (people, place, requires, tags) | Free text cannot answer "can this happen here, with them, today" |
+| Reasoning | Two records: model interpretation, solver placement | Merging them lets a guess masquerade as a justification |
 | `.ics` | Read-only feed behind a **revocable per-user token** | Calendar clients cannot log in; a feed URL is a bearer secret |
 | Cold Turkey | Adapter with a **channel probe**, never locks | See below |
 | Desktop | Tauri, one codebase; Windows is the full-featured target | CT is Windows-only, so "shared codebase" is true for the app, not the features |
@@ -72,6 +76,30 @@ Hard rules, regardless of channel:
 - one active profile at a time, persisted before activation so a crash cannot
   leave an unknown state;
 - a failure to block is reported and the session continues unblocked.
+
+## The capture boundary
+
+```
+note ──▶ capture prompt ──▶ JSON (strict schema) ──▶ parse_capture ──▶ Task/Routine
+                                                            │
+                          warnings ◀────────────────────────┘
+```
+
+`parse_capture` never raises for a single bad item: an unknown category becomes
+`uncategorised` with a warning, a dangling dependency is dropped with a warning,
+and a malformed task is skipped. One hallucinated field must not cost the user
+the other nine tasks they wrote down.
+
+Two things the model may not do, enforced in the schema and the prompt together:
+choose a clock time, or claim to know where something was placed. It expresses
+*duration, preference, deadline, repetition and category*; the solver turns that
+into slots from real availability, and `explain.py` describes the decision it
+actually made.
+
+Fixed weekly commitments come back as `Routine` (immovable); quota-style
+repetition ("gym twice a week") comes back as a `HABIT` task with a period, which
+the solver places. That distinction is the difference between a lecture that must
+never move and a workout that may.
 
 ## Deliberately absent
 

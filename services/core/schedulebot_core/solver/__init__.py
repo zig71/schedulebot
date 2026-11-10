@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 
+from ..categories import Category, catalog, resolve
 from ..domain import Block, Late, Occupied, Plan, Priority, Routine, Shortfall, Task
 from ..slots import SLOTS_PER_DAY
 from .expand import Requirement, expand_all, expand_routines
@@ -58,10 +59,15 @@ def solve(
     horizon_slots: int,
     now_slot: int = 0,
     previous: Plan | None = None,
+    categories: dict[str, Category] | None = None,
 ) -> Plan:
     started = time.perf_counter()
     if horizon_slots <= 0:
         raise ValueError("horizon_slots must be positive")
+
+    # Category defaults fill only what the task left blank.
+    cat = catalog() if categories is None else categories
+    tasks = [resolve(task, cat) for task in tasks]
 
     requirements = expand_all(list(tasks), origin, horizon_slots, now_slot)  # type: ignore[arg-type]
     fixed = expand_routines(list(routines), origin, horizon_slots)  # type: ignore[arg-type]

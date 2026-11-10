@@ -10,7 +10,9 @@ acknowledge → record what actually happened → re-plan the remainder.**
 
 | Piece | State |
 |---|---|
-| Scheduling engine (`services/core`) | **Built and tested** — 21 tests, pure, no I/O |
+| Scheduling engine (`services/core`) | **Built and tested** — 43 tests, pure, no I/O |
+| Categories + context + LLM contract | **Built and tested** — pure parsing, no network |
+| LLM transport (Groq client) | Not started |
 | API + auth + users | Not started |
 | Calendar sync (ICS/CalDAV/Google) | Not started |
 | Notifier + desktop companion | Prototype only (`/prototype` on the old rig) |
@@ -28,8 +30,10 @@ services/
     schedulebot_core/
       slots.py          integer time, and the two different "now"s
       domain.py         Task, Routine, Block, Plan, Reason
+      categories.py     seven presets + user categories, and their defaults
       solver/           expand → reserve → fill → report
       explain.py        why a block is where it is
+      llm/              sentence → structured requests (schema, prompt, parser)
     tests/
 docs/
   ARCHITECTURE.md       decisions, boundaries, and what is deliberately absent
@@ -53,6 +57,18 @@ whose dependency has not been laid out. Fixed routines are immovable. Nothing is
 placed in the past. Demand that does not fit is reported; demand that finishes
 after its deadline is reported. Every block carries the reason it was placed
 there, recorded at placement time rather than reconstructed afterwards.
+
+Tasks carry a **category** and a **context**. A category is more than a label: it
+supplies the defaults that make a task schedulable without repeating yourself —
+which windows it belongs in, what energy it takes, and optionally which Cold
+Turkey block goes with it. Context is structured (people, place, kit, tags)
+because each field changes a decision. Explicit task settings always beat the
+category's.
+
+Two kinds of reasoning are kept apart, deliberately: the model records how it
+**interpreted** your note, and the solver records why it chose the **slot**. A
+model that claims to know where something was placed is lying; it never saw the
+calendar.
 
 ## Licence
 

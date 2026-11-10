@@ -62,6 +62,27 @@ class Window:
         return self.end_min - self.start_min
 
 
+@dataclass(frozen=True, slots=True)
+class Context:
+    """What the task needs around it.
+
+    Structured rather than a note, because each field changes a decision:
+    `people` makes an event multi-attendee, `place` rules out a slot you are not
+    at, `requires` is the kit you need before you can start. Free text stays in
+    `notes` for everything that only a human needs to read.
+    """
+
+    people: tuple[str, ...] = ()
+    place: str | None = None
+    requires: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+    notes: str = ""
+
+    @property
+    def is_multi_attendee(self) -> bool:
+        return len(self.people) > 0
+
+
 @dataclass(slots=True)
 class Task:
     """A demand for time.
@@ -88,6 +109,8 @@ class Task:
     period_days: int | None = None
     remaining: int | None = None
     notes: str = ""
+    category: str = "uncategorised"
+    context: Context = field(default_factory=Context)
 
     def __post_init__(self) -> None:
         if self.minutes <= 0:
