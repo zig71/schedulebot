@@ -79,10 +79,14 @@ npm run build    # -> dist/, which core serves at /
 shadow the API; if the bundle is absent the root simply 404s and the API still
 works. `SCHEDULEBOT_WEB_DIR` overrides the location.
 
-Three screens: **Now** (the current block, a live countdown, the reason, and
-Done), **Add work** (one textbox, then the parsed result and its warnings), and
-**Week** (every block grouped by day, with late and unplaceable work shown in red
-rather than hidden).
+Layout is two columns: a rail with **Now** (the current block, a live countdown,
+the reason, and Done), **Coming up** (day-by-day list with totals, and late or
+unplaceable work in red), and **Add work** (one textbox, then the parsed result
+and its warnings); and a **week time grid** on the right, hours down the side,
+days across, blocks placed by their real instants.
+
+Under 980px the columns flatten into the order that matters on a phone: what to do
+now, then the week, then the list, then the input.
 
 ## Layout
 

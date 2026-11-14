@@ -36,7 +36,7 @@ export default function Capture({ onCaptured }: Props) {
   }
 
   return (
-    <section className="panel">
+    <section className="panel capture-panel">
       <p className="eyebrow">Add work</p>
       <form onSubmit={submit}>
         <textarea

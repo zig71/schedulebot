@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Me, type NowView, type PlanView } from "./api";
 import Capture from "./Capture";
 import Now from "./Now";
-import Week from "./Week";
+import WeekGrid from "./WeekGrid";
+import WeekList from "./WeekList";
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -119,17 +120,20 @@ export default function App() {
       {error && <p className="error banner">{error}</p>}
 
       <div className="layout">
-        <div className="column">
+        <div className="rail">
           <Now now={now} onDone={done} busy={busy} />
+          <WeekList plan={plan} />
+          <div className="capture-slot">
+            <Capture
+              onCaptured={async (nextPlan) => {
+                setPlan(nextPlan);
+                setNow(await api.now().catch(() => null));
+              }}
+            />
+          </div>
         </div>
-        <div className="column">
-          <Capture
-            onCaptured={async (nextPlan) => {
-              setPlan(nextPlan);
-              setNow(await api.now().catch(() => null));
-            }}
-          />
-          <Week plan={plan} />
+        <div className="main">
+          <WeekGrid plan={plan} />
         </div>
       </div>
     </main>

@@ -93,6 +93,16 @@ class GroqClient:
     def close(self) -> None:
         self._client.close()
 
+    def _send(self, body: dict[str, Any]) -> httpx.Response:
+        try:
+            return self._client.post(
+                "/chat/completions",
+                json=body,
+                headers={"Authorization": f"Bearer {self._config.api_key}"},
+            )
+        except httpx.HTTPError as exc:
+            raise LlmError(f"could not reach the model endpoint: {exc}") from exc
+
     def capture(
         self, note: str, *, now: datetime, categories: dict[str, Category], horizon_days: int = 90
     ) -> CaptureResult:
@@ -101,14 +111,14 @@ class GroqClient:
             build_system_prompt(categories, now=now),
             build_user_message(note),
         )
-        try:
-            response = self._client.post(
-                "/chat/completions",
-                json=body,
-                headers={"Authorization": f"Bearer {self._config.api_key}"},
-            )
-        except httpx.HTTPError as exc:
-            raise LlmError(f"could not reach the model endpoint: {exc}") from exc
+        response = self._send(body)
+        if response.status_code == 400 and "json_validate_failed" in response.text:
+            # Observed live: the model sometimes emits a markdown fence instead of
+            # JSON even under a strict schema, and the endpoint rejects it with 400
+            # before returning anything usable. That is a sampling failure, not a
+            # contract failure, so one retry is honest. A second failure is
+            # surfaced with the body attached.
+            response = self._send(body)
 
         if response.status_code >= 400:
             # Surfaced verbatim: a 401 and a 400 "schema not supported" need

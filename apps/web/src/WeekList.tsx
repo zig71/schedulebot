@@ -5,16 +5,16 @@ interface Props {
 }
 
 /**
- * The week. Late work is shown in red at the top rather than hidden, and a
- * shortfall says how much of the work could not be placed — the plan is only
- * trustworthy if it admits what it could not do.
+ * The written version of the grid: what is coming, day by day, with the totals.
+ * Late and unplaceable work leads, because that is the part the plan owes an
+ * explanation for.
  */
-export default function Week({ plan }: Props) {
+export default function WeekList({ plan }: Props) {
   if (!plan) {
     return (
-      <section className="panel">
-        <p className="eyebrow">Week</p>
-        <p className="muted">No plan yet. Re-plan to place your tasks.</p>
+      <section className="panel list-panel">
+        <p className="eyebrow">Coming up</p>
+        <p className="muted">No plan yet. Add work and it will be placed.</p>
       </section>
     );
   }
@@ -26,47 +26,53 @@ export default function Week({ plan }: Props) {
   }
 
   return (
-    <section className="panel">
-      <p className="eyebrow">Week</p>
+    <section className="panel list-panel">
+      <p className="eyebrow">Coming up</p>
 
       {plan.late.length > 0 && (
-        <ul className="late-list">
+        <ul className="flag-list">
           {plan.late.map((item) => (
             <li key={`${item.task_id}-${item.due}`}>
               <strong>{item.title}</strong> finishes {minutesToWords(item.minutes_late)} after its
-              deadline — due {new Date(item.due).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}
+              deadline
             </li>
           ))}
         </ul>
       )}
 
       {plan.shortfalls.length > 0 && (
-        <ul className="late-list">
+        <ul className="flag-list">
           {plan.shortfalls.map((item) => (
             <li key={item.task_id}>
-              <strong>{item.title}</strong> only {minutesToWords(item.placed_minutes)} of{" "}
-              {minutesToWords(item.required_minutes)} could be placed
+              <strong>{item.title}</strong>: {minutesToWords(item.placed_minutes)} of{" "}
+              {minutesToWords(item.required_minutes)} placed
             </li>
           ))}
         </ul>
       )}
 
-      <div className="days">
+      <div className="list-days">
         {[...groups.entries()].map(([day, blocks]) => (
-          <div className="day" key={day}>
-            <h3>{day}</h3>
+          <div className="list-day" key={day}>
+            <h3>
+              {day}
+              <span>{minutesToWords(blocks.reduce((total, block) => total + block.minutes, 0))}</span>
+            </h3>
             <ul>
               {blocks.map((block) => (
                 <li
                   key={`${block.task_id}-${block.start}`}
-                  className={block.is_past ? "past" : block.is_now ? "current" : ""}
+                  className={block.is_now ? "current" : block.is_past ? "past" : ""}
                 >
                   <span className="dot" style={{ background: block.colour ?? "#888" }} />
                   <span className="time">
-                    {new Date(block.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(block.start).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </span>
                   <span className="title">{block.title}</span>
-                  <span className="mins">{minutesToWords(block.minutes)}</span>
+                  <span className="mins">{block.minutes}m</span>
                 </li>
               ))}
             </ul>
@@ -74,10 +80,8 @@ export default function Week({ plan }: Props) {
         ))}
       </div>
 
-      {plan.blocks.length === 0 && <p className="muted">Nothing placed.</p>}
-
       <footer className="plan-meta">
-        solved in {plan.solve_ms} ms · disturbance {plan.disturbance_minutes} min
+        {plan.solve_ms} ms · disturbance {plan.disturbance_minutes}m
         {plan.complete ? " · complete" : " · has warnings"}
       </footer>
     </section>

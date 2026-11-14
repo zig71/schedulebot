@@ -35,7 +35,7 @@ export default function Now({ now, onDone, busy }: Props) {
 
   if (!now) {
     return (
-      <section className="panel now empty">
+      <section className="panel now now-card empty">
         <p className="eyebrow">Nothing scheduled</p>
         <h2>Your day is clear</h2>
         <p className="muted">Add something below, or re-plan once there is work to place.</p>
@@ -53,7 +53,7 @@ export default function Now({ now, onDone, busy }: Props) {
       : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
 
   return (
-    <section className="panel now" style={{ "--accent": now.colour ?? "#4C6FFF" } as CSSProperties}>
+    <section className="panel now now-card" style={{ "--accent": now.colour ?? "#4C6FFF" } as CSSProperties}>
       <header className="now-head">
         <span className={`pill ${running ? "live" : "next"}`}>
           {running ? "Now" : `Next in ${minutesToWords(startsIn / 60)}`}
