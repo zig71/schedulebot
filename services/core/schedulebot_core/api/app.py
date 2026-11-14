@@ -13,12 +13,15 @@ Three rules shape this file:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .. import ics as ics_format
 from .. import views
@@ -38,6 +41,17 @@ from .security import LoginThrottle
 
 COOKIE = "schedulebot_session"
 CaptureFn = Callable[..., CaptureResult]
+#: Where the built frontend lives. `services/core/schedulebot_core/api/app.py`
+#: is four levels below the repo root.
+DEFAULT_WEB_DIR = Path(__file__).resolve().parents[4] / "apps" / "web" / "dist"
+
+
+def _resolve_web_dir(explicit: Path | str | None) -> Path | None:
+    if explicit is not None:
+        path = Path(explicit)
+    else:
+        path = Path(os.environ.get("SCHEDULEBOT_WEB_DIR", DEFAULT_WEB_DIR))
+    return path if path.is_dir() else None
 
 
 def _task_json(task: Task) -> dict[str, object]:
@@ -89,6 +103,7 @@ def create_app(
     horizon_days: int = 21,
     session_ttl_days: int = 30,
     throttle: LoginThrottle | None = None,
+    web_dir: Path | str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="schedulebot", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.store = store
@@ -366,5 +381,11 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    # The built app, mounted last so it can never shadow an API route. Absent in
+    # tests and in a headless deployment, which is why it is conditional.
+    static_dir = _resolve_web_dir(web_dir)
+    if static_dir is not None:
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="web")
 
     return app

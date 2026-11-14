@@ -14,6 +14,7 @@ acknowledge → record what actually happened → re-plan the remainder.**
 | Categories + context + LLM contract | **Built and tested** — pure parsing, no network |
 | LLM transport (Groq) | **Built, exercised against the live model** |
 | API + auth + users (SQLite, one writer) | **Built and tested** — 90 tests |
+| Web UI (`apps/web`) | **Built** — React + TypeScript, three screens, served by core |
 | `.ics` read-only feed | **Built and tested** — token URL, stable UIDs, SEQUENCE, cancellations |
 | CalDAV / Google two-way sync | Not started |
 | Notifier + desktop companion | Prototype only (`/prototype` on the old rig) |
@@ -61,9 +62,33 @@ curl -b jar -X DELETE localhost:8000/api/ics/token   # revoke it
 The token is a password: anyone with the URL can read the schedule. It is stored
 hashed and can be revoked without touching the account.
 
+## The app
+
+`apps/web` is a Vite + React + TypeScript SPA. No SSR, no meta-framework: it is a
+client over an API this repo already owns, and its build output is static files
+that `core` serves and Tauri will bundle unchanged.
+
+```bash
+cd apps/web
+npm install
+npm run dev      # http://localhost:5173, proxies /api to :8000
+npm run build    # -> dist/, which core serves at /
+```
+
+`core` mounts `dist/` at `/` **after** every API route, so the app can never
+shadow the API; if the bundle is absent the root simply 404s and the API still
+works. `SCHEDULEBOT_WEB_DIR` overrides the location.
+
+Three screens: **Now** (the current block, a live countdown, the reason, and
+Done), **Add work** (one textbox, then the parsed result and its warnings), and
+**Week** (every block grouped by day, with late and unplaceable work shown in red
+rather than hidden).
+
 ## Layout
 
 ```
+apps/
+  web/                  React + TypeScript client (Vite)
 services/
   core/                 pure scheduling engine — no I/O, no clock, no DB
     schedulebot_core/

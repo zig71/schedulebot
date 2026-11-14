@@ -257,3 +257,28 @@ def test_a_plan_carries_its_warnings(store: Store) -> None:
     response = client.post("/api/plan/solve")
     assert response.status_code == 200
     assert "warnings" in response.json()
+
+
+def test_the_built_frontend_is_served_without_shadowing_the_api(tmp_path) -> None:
+    """One process serves the app and the API: "/" is the app, /api is still JSON."""
+    store = Store(tmp_path / "web.db")
+    users_store.create_user(store, "yatt", PASSWORD, timezone="Europe/London")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>schedulebot</title>ok")
+
+    client = TestClient(create_app(store, web_dir=dist))
+    root = client.get("/")
+    assert root.status_code == 200
+    assert "schedulebot" in root.text
+    assert client.get("/api/me").status_code == 401
+    store.close()
+
+
+def test_without_a_build_there_is_no_frontend(tmp_path) -> None:
+    store = Store(tmp_path / "nobuild.db")
+    users_store.create_user(store, "yatt", PASSWORD, timezone="Europe/London")
+    client = TestClient(create_app(store, web_dir=tmp_path / "missing"))
+    assert client.get("/").status_code == 404
+    assert client.get("/healthz").json() == {"status": "ok"}
+    store.close()

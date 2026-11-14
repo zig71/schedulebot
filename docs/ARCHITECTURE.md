@@ -52,6 +52,7 @@ not take scheduling down with them.
 | Blocking scope | **Per category**, a tuple of block names | "No social" and "No video" belong to different categories, and one category can need several |
 | Transport failures | Surfaced with status and body, never retried silently | A 401 and a 400 "unsupported schema" need different fixes |
 | Desktop | Tauri, one codebase; Windows is the full-featured target | CT is Windows-only, so "shared codebase" is true for the app, not the features |
+| Frontend | React + TypeScript on Vite, no meta-framework | The week grid needs drag, series-edit and optimistic mutation; a Tauri bundle expects a compiled SPA. Next.js is rejected: there is no server to render on |
 
 ## Cold Turkey
 
@@ -159,6 +160,16 @@ calendar:
 Text is escaped and folded at 75 octets, instants are UTC, and the output is
 sorted so the same plan always produces the same bytes — a feed that reshuffles
 looks changed to the client even when nothing moved.
+
+## Serving the app
+
+`core` mounts the built SPA at `/`, last, so it cannot shadow an API route, and
+only if the build exists — a headless deployment stays API-only, which is what the
+tests run against. One process, one port, no separate web server to keep alive.
+
+The client holds no scheduling logic. It renders `/api/now`, `/api/plan` and
+`/api/capture` exactly as returned, including the warnings: the explanation on the
+Now screen is the solver's recorded reason, not something the UI phrased.
 
 ## Session sizing
 
